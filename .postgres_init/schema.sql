@@ -11,3 +11,9 @@ CREATE TABLE "public"."on_call" (
     "shift" text NOT NULL,
     PRIMARY KEY ("name")
 );
+
+CREATE TABLE "public"."coupons" (
+    "name" text NOT NULL,
+    "applied" boolean NOT NULL DEFAULT false,
+    PRIMARY KEY ("name")
+);

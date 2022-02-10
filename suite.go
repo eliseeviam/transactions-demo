@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,8 +33,9 @@ func (s *Suite) Run() {
 		//s.ImpossibleDirtyRead,
 		//s.NonRepeatableReadFail,
 		//s.NonRepeatableReadGood,
-		s.ExplicitLocksBad,
-		s.ExplicitLocksGood,
+		//s.ExplicitLocksBad,
+		//s.ExplicitLocksGood,
+		s.SwapWithCompare,
 	}
 
 	for _, f := range fs {
@@ -50,6 +52,10 @@ func (s *Suite) clean() {
 		panic(err)
 	}
 	_, err = s.pool.Exec(ctx, "TRUNCATE on_call")
+	if err != nil {
+		panic(err)
+	}
+	_, err = s.pool.Exec(ctx, "TRUNCATE coupons")
 	if err != nil {
 		panic(err)
 	}
@@ -168,12 +174,15 @@ func (s *Suite) ExplicitLocksBad() {
 		}
 
 		fmt.Println("on call: ", count, time.Now())
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 500)
 
 		if count < 2 {
+			fmt.Println(name + " wasn't hurry enough")
 			_ = tx.Rollback(ctx())
 			return
 		}
+
+		fmt.Println(name + " took vacation!")
 
 		_, err = tx.Exec(ctx(), "UPDATE on_call SET on_call = false WHERE name = $1", name)
 		if err != nil {
@@ -216,7 +225,8 @@ func (s *Suite) ExplicitLocksGood() {
 	fmt.Println("=========== start ExplicitLocksGood =========")
 	defer fmt.Println("=============================================")
 
-	_, err := s.pool.Exec(ctx(), "INSERT INTO on_call (name, on_call, shift) VALUES ('bob', true, 'first'), ('alice', true, 'first'), ('sam', true, 'second')")
+	_, err := s.pool.Exec(ctx(), "INSERT INTO on_call (name, on_call, shift) VALUES "+
+		"('bob', true, 'first'), ('alice', true, 'first'), ('sam', true, 'second')")
 	if err != nil {
 		panic(err)
 	}
@@ -242,12 +252,15 @@ func (s *Suite) ExplicitLocksGood() {
 		}
 
 		fmt.Println("on call: ", count, time.Now())
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 500)
 
 		if count < 2 {
+			fmt.Println(name + " wasn't fast enough")
 			_ = tx.Rollback(ctx())
 			return
 		}
+
+		fmt.Println(name + " took vacation!")
 
 		_, err = tx.Exec(ctx(), "UPDATE on_call SET on_call = false WHERE name = $1 AND shift = 'first'", name)
 		if err != nil {
@@ -283,5 +296,46 @@ func (s *Suite) ExplicitLocksGood() {
 
 		fmt.Printf("%s is on call: %t\n", name, onCall)
 	}
+
+}
+
+func (s *Suite) SwapWithCompare() {
+
+	fmt.Println("============ start SwapWithCompare ==========")
+	defer fmt.Println("=============================================")
+
+	_, err := s.pool.Exec(ctx(), "INSERT INTO coupons (name) VALUES ('awesome_coupon')")
+	if err != nil {
+		panic(err)
+	}
+
+	var appliedTimes int64
+	applyCoupon := func(wg *sync.WaitGroup, name string) {
+		defer wg.Done()
+
+		tx := mustNewTX(s.pool, pgx.ReadCommitted)
+
+		tag, err := tx.Exec(ctx(), "UPDATE coupons SET applied = true WHERE name = $1 AND applied = false", name)
+		if err != nil {
+			panic(err)
+		}
+		if tag.RowsAffected() != 0 {
+			atomic.AddInt64(&appliedTimes, 1)
+		}
+
+		tx.Commit(ctx())
+	}
+
+	const num = 10
+	wg := &sync.WaitGroup{}
+	wg.Add(num)
+
+	for i := 0; i < num; i++ {
+		go applyCoupon(wg, "awesome_coupon")
+	}
+
+	wg.Wait()
+
+	fmt.Printf("coupon was applied %v time(s)\n", appliedTimes)
 
 }
