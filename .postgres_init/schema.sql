@@ -17,3 +17,16 @@ CREATE TABLE "public"."coupons" (
     "applied" boolean NOT NULL DEFAULT false,
     PRIMARY KEY ("name")
 );
+
+CREATE TABLE "public"."jobs" (
+    "name" text NOT NULL,
+    "description" text NOT NULL,
+    "done" boolean NOT NULL DEFAULT false,
+    PRIMARY KEY ("name")
+);
+
+CREATE TABLE "public"."accounts" (
+    "owner" int8 NOT NULL,
+    "name" text NOT NULL,
+    "inited" boolean NOT NULL DEFAULT false
+);
